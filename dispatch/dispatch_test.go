@@ -138,7 +138,7 @@ func TestAggrGroup(t *testing.T) {
 	}
 
 	// Test regular situation where we wait for group_wait to send out alerts.
-	ag := newAggrGroup(context.Background(), lset, route, nil, log.NewNopLogger())
+	ag := newAggrGroup(context.Background(), lset, route, nil, log.NewNopLogger(), time.Now())
 	go ag.run(ntfy)
 
 	ag.insert(a1)
@@ -192,24 +192,18 @@ func TestAggrGroup(t *testing.T) {
 	// immediate flushing.
 	// Finally, set all alerts to be resolved. After successful notify the aggregation group
 	// should empty itself.
-	ag = newAggrGroup(context.Background(), lset, route, nil, log.NewNopLogger())
+	ag = newAggrGroup(context.Background(), lset, route, nil, log.NewNopLogger(), time.Now())
 	go ag.run(ntfy)
 
 	ag.insert(a1)
 	ag.insert(a2)
 
-	// a2 lies way in the past so the initial group_wait should be skipped.
-	select {
-	case <-time.After(opts.GroupWait / 2):
-		t.Fatalf("expected immediate alert but received none")
+	batch := <-alertsCh
+	exp := removeEndsAt(types.AlertSlice{a1, a2})
+	sort.Sort(batch)
 
-	case batch := <-alertsCh:
-		exp := removeEndsAt(types.AlertSlice{a1, a2})
-		sort.Sort(batch)
-
-		if !reflect.DeepEqual(batch, exp) {
-			t.Fatalf("expected alerts %v but got %v", exp, batch)
-		}
+	if !reflect.DeepEqual(batch, exp) {
+		t.Fatalf("expected alerts %v but got %v", exp, batch)
 	}
 
 	for i := 0; i < 3; i++ {

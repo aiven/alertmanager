@@ -91,7 +91,8 @@ type Dispatcher struct {
 	ctx    context.Context
 	cancel func()
 
-	logger log.Logger
+	logger    log.Logger
+	startTime time.Time
 }
 
 // Limits describes limits used by Dispatcher.
@@ -126,6 +127,7 @@ func NewDispatcher(
 		logger:  log.With(l, "component", "dispatcher"),
 		metrics: m,
 		limits:  lim,
+		startTime: time.Now(),
 	}
 	return disp
 }
@@ -331,7 +333,7 @@ func (d *Dispatcher) processAlert(alert *types.Alert, route *Route) {
 		return
 	}
 
-	ag = newAggrGroup(d.ctx, groupLabels, route, d.timeout, d.logger)
+	ag = newAggrGroup(d.ctx, groupLabels, route, d.timeout, d.logger, d.startTime)
 	routeGroups[fp] = ag
 	d.aggrGroupsNum++
 	d.metrics.aggrGroups.Inc()
@@ -386,20 +388,22 @@ type aggrGroup struct {
 
 	mtx        sync.RWMutex
 	hasFlushed bool
+	startTime  time.Time
 }
 
 // newAggrGroup returns a new aggregation group.
-func newAggrGroup(ctx context.Context, labels model.LabelSet, r *Route, to func(time.Duration) time.Duration, logger log.Logger) *aggrGroup {
+func newAggrGroup(ctx context.Context, labels model.LabelSet, r *Route, to func(time.Duration) time.Duration, logger log.Logger, startTime time.Time) *aggrGroup {
 	if to == nil {
 		to = func(d time.Duration) time.Duration { return d }
 	}
 	ag := &aggrGroup{
-		labels:   labels,
-		routeKey: r.Key(),
-		opts:     &r.RouteOpts,
-		timeout:  to,
-		alerts:   store.NewAlerts(),
-		done:     make(chan struct{}),
+		labels:    labels,
+		routeKey:  r.Key(),
+		opts:      &r.RouteOpts,
+		timeout:   to,
+		alerts:    store.NewAlerts(),
+		done:      make(chan struct{}),
+		startTime: startTime,
 	}
 	ag.ctx, ag.cancel = context.WithCancel(ctx)
 
@@ -484,7 +488,8 @@ func (ag *aggrGroup) insert(alert *types.Alert) {
 	// alert is already over.
 	ag.mtx.Lock()
 	defer ag.mtx.Unlock()
-	if !ag.hasFlushed && alert.StartsAt.Add(ag.opts.GroupWait).Before(time.Now()) {
+	now := time.Now()
+	if !ag.hasFlushed && alert.StartsAt.Add(ag.opts.GroupWait).Before(now) && ag.startTime.Add(ag.opts.GroupWait).Before(now) {
 		ag.next.Reset(0)
 	}
 }
