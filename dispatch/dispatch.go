@@ -489,7 +489,7 @@ func (ag *aggrGroup) insert(alert *types.Alert) {
 	ag.mtx.Lock()
 	defer ag.mtx.Unlock()
 	now := time.Now()
-	if !ag.hasFlushed && alert.StartsAt.Add(ag.opts.GroupWait).Before(now) && ag.startTime.Add(ag.opts.GroupWait).Before(now) {
+	if !ag.hasFlushed && alert.StartsAt.Add(ag.opts.GroupWait).Before(now) && (!ag.opts.WaitOnStartup || ag.startTime.Add(ag.opts.GroupWait).Before(now)) {
 		ag.next.Reset(0)
 	}
 }
