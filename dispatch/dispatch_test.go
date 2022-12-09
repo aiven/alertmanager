@@ -138,7 +138,7 @@ func TestAggrGroup(t *testing.T) {
 	}
 
 	// Test regular situation where we wait for group_wait to send out alerts.
-	ag := newAggrGroup(context.Background(), lset, route, nil, log.NewNopLogger())
+	ag := newAggrGroup(context.Background(), lset, route, nil, log.NewNopLogger(), time.Now())
 	go ag.run(ntfy)
 
 	ag.insert(a1)
@@ -186,13 +186,14 @@ func TestAggrGroup(t *testing.T) {
 		}
 	}
 
+
 	ag.stop()
 
 	// Add an alert that started more than group_interval in the past. We expect
 	// immediate flushing.
 	// Finally, set all alerts to be resolved. After successful notify the aggregation group
 	// should empty itself.
-	ag = newAggrGroup(context.Background(), lset, route, nil, log.NewNopLogger())
+	ag = newAggrGroup(context.Background(), lset, route, nil, log.NewNopLogger(), time.Now())
 	go ag.run(ntfy)
 
 	ag.insert(a1)
@@ -263,6 +264,30 @@ func TestAggrGroup(t *testing.T) {
 
 		if !ag.empty() {
 			t.Fatalf("Expected aggregation group to be empty after resolving alerts: %v", ag)
+		}
+	}
+
+	ag.stop()
+
+	// Ensure WaitOnStartup is being honored
+	opts.WaitOnStartup = true
+	route = &Route{
+		RouteOpts: *opts,
+	}
+	ag = newAggrGroup(context.Background(), lset, route, nil, log.NewNopLogger(), time.Now())
+	go ag.run(ntfy)
+
+	ag.insert(a1)
+
+	select {
+	case <-time.After(opts.GroupWait * 2):
+		t.Fatalf("Expected alert to be dealt with after group_wait but it has not been handled yet")
+
+	case batch := <-alertsCh:
+		exp := removeEndsAt(types.AlertSlice{a1})
+		sort.Sort(batch)
+		if !reflect.DeepEqual(batch, exp) {
+			t.Fatalf("expected alert %v but got %v", exp, batch)
 		}
 	}
 
